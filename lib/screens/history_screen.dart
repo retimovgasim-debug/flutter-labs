@@ -1,7 +1,77 @@
 import 'package:flutter/material.dart';
+import '../services/password_service.dart';
+import '../models/password_record.dart';
 
-class HistoryScreen extends StatelessWidget {
+class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
+
+  @override
+  State<HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _HistoryScreenState extends State<HistoryScreen> {
+  final PasswordService _passwordService = PasswordService();
+  final TextEditingController _searchController = TextEditingController();
+  List<PasswordRecord> _displayedHistory = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _updateDisplayedHistory();
+  }
+
+  void _updateDisplayedHistory() {
+    setState(() {
+      _displayedHistory = _passwordService.passwordHistory;
+    });
+  }
+
+  void _searchPasswords(String query) {
+    setState(() {
+      if (query.isEmpty) {
+        _displayedHistory = _passwordService.passwordHistory;
+      } else {
+        _displayedHistory = _passwordService.searchPasswords(query);
+      }
+    });
+  }
+
+  void _copyPassword(String password) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Пароль "$password" скопирован'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _deletePassword(int index) {
+    // Получаем реальный индекс в основном списке
+    final recordToDelete = _displayedHistory[index];
+    final mainIndex = _passwordService.passwordHistory.indexOf(recordToDelete);
+
+    _passwordService.deletePassword(mainIndex);
+    _updateDisplayedHistory();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Пароль удален из истории'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _clearHistory() {
+    _passwordService.clearHistory();
+    _updateDisplayedHistory();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('История очищена'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -12,7 +82,9 @@ class HistoryScreen extends StatelessWidget {
         foregroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: null, // Пока без логики
+          onPressed: () {
+            Navigator.pop(context);
+          },
         ),
       ),
       body: Column(
@@ -23,6 +95,7 @@ class HistoryScreen extends StatelessWidget {
               children: [
                 Expanded(
                   child: TextField(
+                    controller: _searchController,
                     decoration: InputDecoration(
                       hintText: 'Поиск в истории...',
                       prefixIcon: const Icon(Icons.search),
@@ -30,53 +103,62 @@ class HistoryScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    onChanged: null, // Пока без логики
+                    onChanged: _searchPasswords,
                   ),
                 ),
               ],
             ),
           ),
           Expanded(
-            child: ListView(
-              children: const [
-                _PasswordHistoryItem(
-                  password: 'A7#k9!pQ2xVm',
-                  date: '12.12.2023 14:30',
-                ),
-                _PasswordHistoryItem(
-                  password: 'Bn8*ktP4!qWx',
-                  date: '12.12.2023 14:25',
-                ),
-                _PasswordHistoryItem(
-                  password: 'Mp5\$rT9@vNz2',
-                  date: '12.12.2023 14:20',
-                ),
-                _PasswordHistoryItem(
-                  password: 'Xy3#pL8!kMw9',
-                  date: '12.12.2023 14:15',
-                ),
-                _PasswordHistoryItem(
-                  password: 'Rt6\$qN2@zPx7',
-                  date: '12.12.2023 14:10',
-                ),
-              ],
+            child: _displayedHistory.isEmpty
+                ? const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.history, size: 64, color: Colors.grey),
+                  SizedBox(height: 16),
+                  Text(
+                    'История паролей пуста',
+                    style: TextStyle(fontSize: 18, color: Colors.grey),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Сгенерируйте пароли на главном экране',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            )
+                : ListView.builder(
+              itemCount: _displayedHistory.length,
+              itemBuilder: (context, index) {
+                final record = _displayedHistory[index];
+                return _PasswordHistoryItem(
+                  password: record.password,
+                  date: record.formattedDate,
+                  onCopy: () => _copyPassword(record.password),
+                  onDelete: () => _deletePassword(index),
+                );
+              },
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+          if (_passwordService.passwordHistory.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _clearHistory,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  child: const Text('ОЧИСТИТЬ ИСТОРИЮ'),
                 ),
-                child: const Text('ОЧИСТИТЬ ИСТОРИЮ'),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -87,10 +169,14 @@ class HistoryScreen extends StatelessWidget {
 class _PasswordHistoryItem extends StatelessWidget {
   final String password;
   final String date;
+  final VoidCallback onCopy;
+  final VoidCallback onDelete;
 
   const _PasswordHistoryItem({
     required this.password,
     required this.date,
+    required this.onCopy,
+    required this.onDelete,
   });
 
   @override
@@ -126,11 +212,11 @@ class _PasswordHistoryItem extends StatelessWidget {
             ),
             IconButton(
               icon: const Icon(Icons.copy, color: Colors.blue),
-              onPressed: null,
+              onPressed: onCopy,
             ),
             IconButton(
               icon: const Icon(Icons.delete, color: Colors.red),
-              onPressed: null,
+              onPressed: onDelete,
             ),
           ],
         ),

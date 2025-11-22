@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
+import 'screens/history_screen.dart';
 
 void main() {
   runApp(const MainApp());
@@ -17,6 +18,9 @@ class MainApp extends StatelessWidget {
         useMaterial3: true,
       ),
       home: const HomeScreen(),
+      routes: {
+        '/history': (context) => const HistoryScreen(),
+      },
     );
   }
 }
