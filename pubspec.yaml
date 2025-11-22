@@ -1,5 +1,6 @@
 name: password_generator
-description: "A Flutter password generator app"
+description: "Безопасный генератор паролей с проверкой через Have I Been Pwned"
+version: 1.0.0+1
 
 environment:
   sdk: '^3.10.0'
@@ -22,3 +23,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon.png
