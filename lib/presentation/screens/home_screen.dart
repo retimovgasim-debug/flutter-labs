@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
+import 'package:provider/provider.dart';
+import '../view_models/password_view_model.dart';
 import '../widgets/password_strength_indicator.dart';
-import '../services/password_service.dart';
+import '../../../data/repositories/password_repository_impl.dart';
+import '../../../data/services/local_storage_service.dart';
+import '../../../data/services/security_api_service.dart';
+import '../../../domain/entities/password_record.dart';
+import 'package:flutter/services.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,33 +21,37 @@ class _HomeScreenState extends State<HomeScreen> {
   double _passwordLength = 12;
   double _passwordStrength = 0.0;
 
-  // Настройки символов
   bool _uppercase = true;
   bool _lowercase = true;
   bool _numbers = true;
   bool _symbols = true;
 
-  String? _generateRandomPassword() {
-    // Возвращаем null если не выбраны типы символов
+  late PasswordRepositoryImpl _passwordRepository;
+  late LocalStorageService _localStorageService;
+  late SecurityApiService _securityApiService;
+
+  @override
+  void initState() {
+    super.initState();
+    _localStorageService = LocalStorageService();
+    _securityApiService = SecurityApiService();
+    _passwordRepository = PasswordRepositoryImpl(
+      localStorageService: _localStorageService,
+      securityApiService: _securityApiService,
+    );
+  }
+
+  String _generateRandomPassword() {
     if (!_uppercase && !_lowercase && !_numbers && !_symbols) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Выберите хотя бы один тип символов!'),
-          backgroundColor: Colors.red,
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return null;
+      return 'Выберите типы символов!';
     }
 
-    // Формируем строку доступных символов
     String chars = '';
     if (_uppercase) chars += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     if (_lowercase) chars += 'abcdefghijklmnopqrstuvwxyz';
     if (_numbers) chars += '0123456789';
     if (_symbols) chars += '!@#\$%^&*()';
 
-    // Генерируем пароль
     String result = '';
     final random = Random();
     for (int i = 0; i < _passwordLength; i++) {
@@ -50,31 +60,57 @@ class _HomeScreenState extends State<HomeScreen> {
     return result;
   }
 
-  void _generatePassword() {
+  Future<void> _generatePassword(BuildContext context) async {
+    // ДОБАВЬТЕ ЭТУ ПРОВЕРКУ В НАЧАЛО ФУНКЦИИ
+    if (!_uppercase && !_lowercase && !_numbers && !_symbols) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Выберите хотя бы один тип символов!'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return; // Выходим из функции
+    }
+
     final newPassword = _generateRandomPassword();
-    if (newPassword != null) {
+    if (newPassword != 'Выберите типы символов!') {
       setState(() {
         _generatedPassword = newPassword;
         _passwordStrength = _calculateStrength();
       });
 
-      // СОХРАНЯЕМ В ИСТОРИЮ!
-      PasswordService().addPassword(newPassword);
+      try {
+        final passwordRecord = await _passwordRepository.createPasswordRecord(
+          password: newPassword,
+          strength: (_passwordStrength * 100).toInt(),
+        );
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Новый пароль сгенерирован и сохранен в историю'),
-          duration: Duration(seconds: 1),
-        ),
-      );
+        // Сохраняем через ViewModel
+        final viewModel = Provider.of<PasswordViewModel>(context, listen: false);
+        await viewModel.savePassword(passwordRecord);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Новый пароль сгенерирован и сохранен в историю'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
   void _copyToClipboard() {
-    // Не копируем если пароль фейковый
     if (_generatedPassword == 'Выберите типы символов!' ||
-        _generatedPassword == 'Нажмите "Сгенерировать"' ||
-        _generatedPassword == 'Ошибка генерации') {
+        _generatedPassword == 'Нажмите "Сгенерировать"') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Сначала сгенерируйте валидный пароль'),
@@ -85,6 +121,9 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    // ДОБАВЬТЕ РЕАЛЬНОЕ КОПИРОВАНИЕ
+    Clipboard.setData(ClipboardData(text: _generatedPassword));
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Пароль скопирован в буфер обмена'),
@@ -93,12 +132,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _navigateToHistory() {
+  void _navigateToHistory(BuildContext context) {
     Navigator.pushNamed(context, '/history');
   }
 
   double _calculateStrength() {
-    // Проверяем что выбран хотя бы один тип
     if (!_uppercase && !_lowercase && !_numbers && !_symbols) {
       return 0.0;
     }
@@ -109,9 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_numbers) strength += 0.3;
     if (_symbols) strength += 0.3;
 
-    // Умножаем на коэффициент длины
     strength *= (_passwordLength / 32);
-
     return strength.clamp(0.0, 1.0);
   }
 
@@ -130,6 +166,28 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
+            // Security API статус
+            Card(
+              color: Colors.blue[50],
+              child: const Padding(
+                padding: EdgeInsets.all(12.0),
+                child: Row(
+                  children: [
+                    Icon(Icons.security, color: Colors.blue),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Проверяем пароли через Have I Been Pwned API',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
             // Отображение сгенерированного пароля
             Container(
               width: double.infinity,
@@ -277,7 +335,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: _generatePassword,
+                    onPressed: () => _generatePassword(context),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
                       foregroundColor: Colors.white,
@@ -306,7 +364,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // Кнопка перехода к истории
             OutlinedButton(
-              onPressed: _navigateToHistory,
+              onPressed: () => _navigateToHistory(context),
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.blue,
                 side: const BorderSide(color: Colors.blue),
